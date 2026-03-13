@@ -30,36 +30,44 @@ export async function getTasks(): Promise<Task[]> {
 
     // Automatically update tasks to 'delayed' if they are past their end_date 
     // and aren't already completed, cancelled, or delayed.
-    const stmtUpdate = db.prepare(`
-        UPDATE tasks 
-        SET status = 'delayed' 
-        WHERE status NOT IN ('completed', 'cancelled', 'delayed') 
-        AND date(end_date) < date('now', 'localtime')
-        AND user_id = ?
-    `);
-    stmtUpdate.run(session.userId);
+    await db.execute({
+        sql: `
+            UPDATE tasks 
+            SET status = 'delayed' 
+            WHERE status NOT IN ('completed', 'cancelled', 'delayed') 
+            AND date(end_date) < date('now', 'localtime')
+            AND user_id = ?
+        `,
+        args: [session.userId]
+    });
 
-    const stmt = db.prepare('SELECT * FROM tasks WHERE user_id = ? ORDER BY start_date ASC');
-    return stmt.all(session.userId) as Task[];
+    const result = await db.execute({
+        sql: 'SELECT * FROM tasks WHERE user_id = ? ORDER BY start_date ASC',
+        args: [session.userId]
+    });
+    
+    // Convert libSQL row format to Task objects
+    return result.rows as unknown as Task[];
 }
 
 export async function createTask(data: CreateTaskInput) {
     const session = await getSession();
     if (!session) return;
 
-    const stmt = db.prepare(`
-        INSERT INTO tasks (user_id, title, description, start_date, end_date, status, color)
-        VALUES (@user_id, @title, @description, @start_date, @end_date, @status, @color)
-    `);
-    
-    stmt.run({
-        user_id: session.userId,
-        title: data.title,
-        description: data.description || '',
-        start_date: data.start_date,
-        end_date: data.end_date,
-        status: data.status || 'pending',
-        color: data.color || '#ffffff'
+    await db.execute({
+        sql: `
+            INSERT INTO tasks (user_id, title, description, start_date, end_date, status, color)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+            session.userId,
+            data.title,
+            data.description || '',
+            data.start_date,
+            data.end_date,
+            data.status || 'pending',
+            data.color || '#ffffff'
+        ]
     });
     
     revalidatePath('/');
@@ -71,22 +79,25 @@ export async function updateTask(id: number, data: Partial<CreateTaskInput>) {
 
     // Dynamically build the UPDATE query based on provided fields
     const fields: string[] = [];
-    const values: any = { id, user_id: session.userId };
+    const values: any[] = [];
     
     for (const [key, value] of Object.entries(data)) {
         if (value !== undefined) {
-            fields.push(`${key} = @${key}`);
-            values[key] = value;
+            fields.push(`${key} = ?`);
+            values.push(value);
         }
     }
     
     if (fields.length === 0) return;
     
-    const stmt = db.prepare(`
-        UPDATE tasks SET ${fields.join(', ')} WHERE id = @id AND user_id = @user_id
-    `);
+    values.push(id);
+    values.push(session.userId);
+
+    await db.execute({
+        sql: `UPDATE tasks SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`,
+        args: values
+    });
     
-    stmt.run(values);
     revalidatePath('/');
 }
 
@@ -94,7 +105,10 @@ export async function deleteTask(id: number) {
     const session = await getSession();
     if (!session) return;
 
-    const stmt = db.prepare('DELETE FROM tasks WHERE id = ? AND user_id = ?');
-    stmt.run(id, session.userId);
+    await db.execute({
+        sql: 'DELETE FROM tasks WHERE id = ? AND user_id = ?',
+        args: [id, session.userId]
+    });
+    
     revalidatePath('/');
 }

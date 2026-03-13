@@ -1,12 +1,18 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import { createClient } from '@libsql/client';
 
-// Create or open the database file
-const dbPath = path.resolve(process.cwd(), 'data.db');
-const db = new Database(dbPath);
+// For local development, this will use local data.db file if env variables are missing.
+// For Vercel, you need to add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the dashboard.
+const dbUrl = process.env.TURSO_DATABASE_URL || 'file:data.db';
 
-// Initialize database schema
-db.exec(`
+const db = createClient({
+    url: dbUrl,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+// Initialize database schema (using executeBatch for multiple statements)
+// Note: It's better to run migrations in a separate script for production, 
+// but for this personal project we'll run it on initialization.
+db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
@@ -24,20 +30,23 @@ db.exec(`
         color TEXT DEFAULT '#ffffff',
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
-`);
+`).catch((err) => {
+    console.error('Failed to initialize database tables:', err);
+});
 
 // Try to add user_id column if tasks table already existed without it
-try {
-    // Cannot add a REFERENCES column with a non-NULL default directly in some SQLite versions.
-    // Instead, we check if the column exists by PRAGMA, but catching the error is simpler.
-    db.exec(`ALTER TABLE tasks ADD COLUMN user_id INTEGER REFERENCES users(id)`);
-    // After adding the column (which defaults to NULL), update existing tasks to belong to a default user (id: 1)
-    db.exec(`UPDATE tasks SET user_id = 1 WHERE user_id IS NULL`);
-} catch (error: any) {
-    // If column already exists, this throws an error. We can safely ignore it.
-    if (!error.message.includes('duplicate column name')) {
-        console.error('Failed to add user_id to tasks:', error);
+// and assign orphaned tasks to a default user.
+async function alterTable() {
+    try {
+        await db.execute('ALTER TABLE tasks ADD COLUMN user_id INTEGER REFERENCES users(id)');
+        await db.execute('UPDATE tasks SET user_id = 1 WHERE user_id IS NULL');
+    } catch (error: any) {
+        // Safe to ignore duplicate column errors
+        if (!error.message?.includes('duplicate column name')) {
+            // Ignore other alter table errors gracefully
+        }
     }
 }
+alterTable();
 
 export default db;
