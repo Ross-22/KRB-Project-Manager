@@ -4,6 +4,7 @@ import { useActionState } from 'react';
 import { login } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
@@ -26,7 +27,7 @@ export default function LoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" name="password" type="password" required className="bg-background/50" />
+              <PasswordInput id="password" name="password" required className="bg-background/50" />
             </div>
             {state?.error && (
               <div className="text-sm text-destructive font-medium">{state.error}</div>

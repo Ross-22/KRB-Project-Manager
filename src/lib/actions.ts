@@ -46,8 +46,17 @@ export async function getTasks(): Promise<Task[]> {
         args: [session.userId]
     });
     
-    // Convert libSQL row format to Task objects
-    return result.rows as unknown as Task[];
+    // Convert libSQL row format to plain Task objects to avoid Next.js serialization errors
+    return result.rows.map((row) => ({
+        id: Number(row.id),
+        user_id: Number(row.user_id),
+        title: row.title as string,
+        description: row.description as string,
+        start_date: row.start_date as string,
+        end_date: row.end_date as string,
+        status: row.status as string,
+        color: row.color as string,
+    }));
 }
 
 export async function createTask(data: CreateTaskInput) {
